@@ -1,0 +1,129 @@
+erDiagram
+    users {
+        uuid id PK
+        text clerk_user_id UK
+        text email UK
+        text display_name
+        text role
+        text broker_id UK
+        text consent_version
+        timestamptz consent_at
+        timestamptz deactivated_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    properties {
+        uuid id PK
+        text address
+        text pincode
+        text unit
+        text normalized_address_key UK
+        text property_type
+        uuid current_owner_user_id FK
+        uuid created_by_user_id FK
+        timestamptz deleted_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    transactions {
+        uuid id PK
+        uuid property_id FK
+        uuid buyer_user_id FK
+        uuid seller_user_id FK
+        uuid broker_user_id FK
+        timestamptz buyer_confirmed_at
+        timestamptz seller_confirmed_at
+        timestamptz broker_confirmed_at
+        boolean loan_requested
+        text stage
+        text lender_name
+        text loan_reference
+        boolean payment_is_simulated
+        text payment_reference
+        text registration_reference
+        text cancellation_reason
+        text cancellation_note
+        integer version
+        uuid created_by_user_id FK
+        timestamptz deleted_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    documents {
+        uuid id PK
+        uuid transaction_id FK
+        uuid property_id FK
+        uuid uploaded_by_user_id FK
+        text type
+        text verification_status
+        text verification_reason
+        uuid verified_by_user_id FK
+        timestamptz verified_at
+        uuid supersedes_document_id FK
+        text storage_key UK
+        text original_filename
+        text media_type
+        bigint size_bytes
+        text sha256_checksum
+        timestamptz deleted_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    events {
+        uuid id PK
+        uuid property_id FK
+        uuid transaction_id FK
+        uuid actor_user_id FK
+        text actor_type
+        text type
+        jsonb payload
+        timestamptz created_at
+    }
+    notifications {
+        uuid id PK
+        uuid recipient_user_id FK
+        uuid event_id FK
+        timestamptz read_at
+        timestamptz created_at
+    }
+    broker_provisions {
+        uuid id PK
+        text email UK
+        text display_name
+        text broker_id UK
+        uuid created_by_user_id FK
+        uuid claimed_by_user_id FK
+        timestamptz created_at
+    }
+    idempotency_records {
+        uuid id PK
+        uuid actor_user_id FK
+        text idempotency_key
+        text route_key
+        text request_hash
+        integer response_status
+        jsonb response_body
+        timestamptz expires_at
+        timestamptz created_at
+    }
+
+    users ||--o{ properties : creates
+    users o|--o{ properties : owns_claim
+    properties ||--o{ transactions : has
+    users ||--o{ transactions : buys
+    users ||--o{ transactions : sells
+    users o|--o{ transactions : brokers
+    users ||--o{ transactions : creates
+    transactions ||--o{ documents : contains
+    properties ||--o{ documents : passport_records
+    users ||--o{ documents : uploads
+    users o|--o{ documents : verifies
+    documents o|--o{ documents : supersedes
+    properties ||--o{ events : records
+    transactions o|--o{ events : records
+    users o|--o{ events : acts
+    users ||--o{ notifications : receives
+    events ||--o{ notifications : causes
+    users ||--o{ broker_provisions : provisions
+    users o|--o| broker_provisions : claims
+    users ||--o{ idempotency_records : keys

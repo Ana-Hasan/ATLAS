@@ -1,0 +1,880 @@
+openapi: 3.1.0
+info:
+  title: Project Atlas API
+  version: 1.0.0
+  description: API contract for the Atlas MVP. Roles are loaded from the local users table.
+servers:
+  - url: /api/v1
+security:
+  - clerkBearer: []
+paths:
+  /health:
+    servers:
+      - url: /
+    get:
+      operationId: getHealth
+      summary: Liveness probe
+      security: []
+      x-allowed-roles: []
+      responses:
+        '200':
+          description: Process is alive.
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Health'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /ready:
+    servers:
+      - url: /
+    get:
+      operationId: getReadiness
+      summary: Dependency readiness probe
+      security: []
+      x-allowed-roles: []
+      responses:
+        '200':
+          description: Database reachable; storage state reported independently.
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Readiness'}
+        '503':
+          description: Database is unavailable.
+          headers:
+            X-Request-Id: {$ref: '#/components/headers/XRequestId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReadinessFailure'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /auth/register:
+    post:
+      operationId: registerUser
+      summary: Create or refresh the local user row for the authenticated Clerk identity
+      x-allowed-roles: [BUYER, SELLER]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RegisterRequest'}
+      responses:
+        '200':
+          description: Existing local user returned by idempotent upsert.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}
+        '201':
+          description: Local user created.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}
+        '400': {$ref: '#/components/responses/ValidationFailed'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/PreconditionFailed'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /me:
+    get:
+      operationId: getMe
+      summary: Read the caller's local profile
+      x-allowed-roles: [BUYER, SELLER, BROKER, ADMIN]
+      responses:
+        '200':
+          description: Current local user.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/User'}}}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /properties:
+    get:
+      operationId: listProperties
+      summary: Search properties available to the caller
+      x-allowed-roles: [BUYER, SELLER, BROKER, ADMIN]
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {name: q, in: query, schema: {type: string, maxLength: 200}, description: Address search string.}
+        - {name: property_type, in: query, schema: {$ref: '#/components/schemas/PropertyType'}}
+      responses:
+        '200':
+          description: Cursor-paginated property core records.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/PropertyPage'}}}
+        '400': {$ref: '#/components/responses/ValidationFailed'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+    post:
+      operationId: createProperty
+      summary: Create a property passport
+      x-allowed-roles: [BUYER, SELLER]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/CreatePropertyRequest'}}}
+      responses:
+        '201':
+          description: Property created.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Property'}}}
+        '400': {$ref: '#/components/responses/ValidationFailed'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/DuplicateProperty'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /properties/{id}:
+    get:
+      operationId: getProperty
+      summary: Read a property passport with caller-filtered history and documents
+      x-allowed-roles: [BUYER, SELLER, BROKER, ADMIN]
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+      responses:
+        '200':
+          description: Property passport. History and document list are filtered by caller authorization.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Passport'}}}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /users/lookup:
+    get:
+      operationId: lookupUserByExactEmail
+      summary: Resolve an account by exact verified email
+      x-allowed-roles: [BUYER, SELLER, BROKER]
+      parameters:
+        - {name: email, in: query, required: true, schema: {type: string, format: email, maxLength: 254}}
+      responses:
+        '200':
+          description: Exact match; returns only id, display_name, and role.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/UserLookup'}}}
+        '400': {$ref: '#/components/responses/ValidationFailed'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /transactions:
+    get:
+      operationId: listTransactions
+      summary: List transactions visible to the caller
+      x-allowed-roles: [BUYER, SELLER, BROKER, ADMIN]
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {name: stage, in: query, schema: {$ref: '#/components/schemas/Stage'}}
+        - {name: property_id, in: query, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: Caller-authorized transactions with derived pending_action.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/TransactionPage'}}}
+        '400': {$ref: '#/components/responses/ValidationFailed'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+    post:
+      operationId: createTransaction
+      summary: Start a transaction on a property
+      x-allowed-roles: [BUYER]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/CreateTransactionRequest'}}}
+      responses:
+        '201':
+          description: Transaction created in INITIATED.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Transaction'}}}
+        '400': {$ref: '#/components/responses/ValidationFailed'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/PreconditionFailed'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /transactions/{id}:
+    get:
+      operationId: getTransaction
+      summary: Read one caller-authorized transaction
+      x-allowed-roles: [BUYER, SELLER, BROKER, ADMIN]
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '200':
+          description: Transaction including derived pending_action.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Transaction'}}}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /transactions/{id}/stage:
+    patch:
+      operationId: transitionTransactionStage
+      summary: Request one explicit transition
+      x-allowed-roles: [BUYER, SELLER, ADMIN]
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/StageTransitionRequest'}}}
+      responses:
+        '200':
+          description: Transition completed.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Transaction'}}}
+        '400': {$ref: '#/components/responses/ValidationFailed'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/PreconditionFailed'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /transactions/{id}/participants/confirm:
+    post:
+      operationId: confirmParticipation
+      summary: Confirm the caller's assigned participation
+      x-allowed-roles: [SELLER, BROKER]
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      responses:
+        '200':
+          description: Confirmation recorded; automatic transition may have run.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Transaction'}}}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /transactions/{id}/broker:
+    post:
+      operationId: attachBroker
+      summary: Attach an existing provisioned broker by Broker ID
+      x-allowed-roles: [BUYER, SELLER]
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/AttachBrokerRequest'}}}
+      responses:
+        '200':
+          description: Broker assignment recorded; broker confirmation is pending.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Transaction'}}}
+        '400': {$ref: '#/components/responses/ValidationFailed'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /transactions/{id}/documents:
+    get:
+      operationId: listTransactionDocuments
+      summary: List documents visible to the caller for a transaction
+      x-allowed-roles: [BUYER, SELLER, BROKER, ADMIN]
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: Caller-authorized document metadata.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/DocumentPage'}}}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /documents/upload:
+    post:
+      operationId: uploadDocument
+      summary: Upload a validated document through the backend
+      x-allowed-roles: [BUYER, SELLER]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [transaction_id, type, file]
+              properties:
+                transaction_id: {type: string, format: uuid}
+                type: {$ref: '#/components/schemas/DocumentType'}
+                supersedes_document_id: {type: [string, 'null'], format: uuid}
+                file: {type: string, format: binary}
+      responses:
+        '201':
+          description: Document stored in private object storage and row created.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Document'}}}
+        '400': {$ref: '#/components/responses/ValidationFailed'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/PreconditionFailed'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /documents/{id}/download-url:
+    get:
+      operationId: getDocumentDownloadUrl
+      summary: Obtain a short-lived signed download URL after authorization
+      x-allowed-roles: [BUYER, SELLER, BROKER, ADMIN]
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '200':
+          description: Authorized download URL with at most five minutes validity; DOCUMENT_ACCESSED event written.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/DownloadUrl'}}}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /documents/{id}/verification:
+    patch:
+      operationId: verifyDocument
+      summary: Set a pending document to VERIFIED or REJECTED
+      x-allowed-roles: [ADMIN]
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/VerificationRequest'}}}
+      responses:
+        '200':
+          description: Verification decision recorded.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Document'}}}
+        '400': {$ref: '#/components/responses/ValidationFailed'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /admin/documents:
+    get:
+      operationId: listAdminDocuments
+      summary: List documents in the verification queue
+      x-allowed-roles: [ADMIN]
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {name: verification_status, in: query, schema: {type: string, enum: [PENDING, VERIFIED, REJECTED]}}
+      responses:
+        '200':
+          description: Cursor-paginated document queue.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/DocumentPage'}}}
+        '400': {$ref: '#/components/responses/ValidationFailed'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /admin/transactions:
+    get:
+      operationId: listAdminTransactions
+      summary: List all transactions with administrative filters
+      x-allowed-roles: [ADMIN]
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {name: stage, in: query, schema: {$ref: '#/components/schemas/Stage'}}
+        - {name: inactive_days, in: query, schema: {type: integer, minimum: 1}}
+      responses:
+        '200':
+          description: Cursor-paginated transaction list.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/TransactionPage'}}}
+        '400': {$ref: '#/components/responses/ValidationFailed'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /notifications:
+    get:
+      operationId: listNotifications
+      summary: List the caller's notifications
+      x-allowed-roles: [BUYER, SELLER, BROKER, ADMIN]
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {name: unread_only, in: query, schema: {type: boolean, default: false}}
+      responses:
+        '200':
+          description: Cursor-paginated caller-owned notifications.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/NotificationPage'}}}
+        '400': {$ref: '#/components/responses/ValidationFailed'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /notifications/{id}/read:
+    patch:
+      operationId: markNotificationRead
+      summary: Mark the caller's notification as read
+      x-allowed-roles: [BUYER, SELLER, BROKER, ADMIN]
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses:
+        '200':
+          description: Notification marked read.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Notification'}}}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /admin/brokers:
+    post:
+      operationId: provisionBroker
+      summary: Provision a broker account and allocate Broker ID
+      x-allowed-roles: [ADMIN]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/ProvisionBrokerRequest'}}}
+      responses:
+        '201':
+          description: Broker provision created.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/BrokerProvision'}}}
+        '400': {$ref: '#/components/responses/ValidationFailed'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /admin/properties/{id}:
+    patch:
+      operationId: correctProperty
+      summary: Correct property fields as ADMIN
+      x-allowed-roles: [ADMIN]
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/CorrectPropertyRequest'}}}
+      responses:
+        '200':
+          description: Property updated and PROPERTY_UPDATED event written.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Property'}}}
+        '400': {$ref: '#/components/responses/ValidationFailed'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/DuplicateProperty'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /admin/transactions/{id}/assignments:
+    patch:
+      operationId: correctTransactionAssignments
+      summary: Correct transaction participants as ADMIN
+      x-allowed-roles: [ADMIN]
+      parameters:
+        - {$ref: '#/components/parameters/Id'}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/CorrectAssignmentsRequest'}}}
+      responses:
+        '200':
+          description: Assignments corrected and ASSIGNMENT_CORRECTED event written.
+          headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+          content: {application/json: {schema: {$ref: '#/components/schemas/Transaction'}}}
+        '400': {$ref: '#/components/responses/ValidationFailed'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/PreconditionFailed'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '500': {$ref: '#/components/responses/Internal'}
+components:
+  securitySchemes:
+    clerkBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Clerk-issued bearer token; local users.role is authoritative.
+  headers:
+    XRequestId:
+      description: Request correlation ID.
+      schema: {type: string, format: uuid}
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: {type: string, maxLength: 512}
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: {type: integer, minimum: 1, maximum: 100, default: 25}
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 1, maxLength: 128}
+      description: State-changing request key. Same actor, route, key, and body replay original response for 24 hours.
+  responses:
+    ValidationFailed:
+      description: Request validation failed.
+      headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorEnvelope'}, example: {error: {code: VALIDATION_FAILED, message: Request validation failed, details: {}, request_id: '00000000-0000-4000-8000-000000000001'}}}}
+    Unauthenticated:
+      description: Authentication is missing or invalid.
+      headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorEnvelope'}, example: {error: {code: UNAUTHENTICATED, message: Authentication required, details: {}, request_id: '00000000-0000-4000-8000-000000000001'}}}}
+    Forbidden:
+      description: Caller role or relationship does not permit this operation.
+      headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorEnvelope'}, example: {error: {code: FORBIDDEN, message: Operation not permitted, details: {}, request_id: '00000000-0000-4000-8000-000000000001'}}}}
+    NotFound:
+      description: Resource is absent or caller may not know it exists.
+      headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorEnvelope'}, example: {error: {code: NOT_FOUND, message: Resource not found, details: {}, request_id: '00000000-0000-4000-8000-000000000001'}}}}
+    Conflict:
+      description: Stage, idempotency, or resource state conflict. The code is STAGE_CONFLICT or ILLEGAL_TRANSITION as applicable.
+      headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorEnvelope'}}}
+    DuplicateProperty:
+      description: A non-deleted property has the same normalized address key.
+      headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorEnvelope'}, example: {error: {code: DUPLICATE_PROPERTY, message: Property already exists, details: {existing_id: '00000000-0000-4000-8000-000000000001'}, request_id: '00000000-0000-4000-8000-000000000001'}}}}
+    PreconditionFailed:
+      description: Required workflow data or verified document is missing.
+      headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorEnvelope'}, example: {error: {code: PRECONDITION_FAILED, message: Required conditions are not satisfied, details: {missing: [PAN_VERIFIED]}, request_id: '00000000-0000-4000-8000-000000000001'}}}}
+    PayloadTooLarge:
+      description: Upload exceeds 10 MiB.
+      headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorEnvelope'}, example: {error: {code: PAYLOAD_TOO_LARGE, message: Request body exceeds the allowed size, details: {}, request_id: '00000000-0000-4000-8000-000000000001'}}}}
+    UnsupportedMediaType:
+      description: Uploaded bytes are not an allowed PDF, JPEG, or PNG.
+      headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorEnvelope'}, example: {error: {code: UNSUPPORTED_MEDIA_TYPE, message: Unsupported file type, details: {}, request_id: '00000000-0000-4000-8000-000000000001'}}}}
+    RateLimited:
+      description: Request rate limit exceeded.
+      headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorEnvelope'}, example: {error: {code: RATE_LIMITED, message: Request rate limit exceeded, details: {}, request_id: '00000000-0000-4000-8000-000000000001'}}}}
+    Internal:
+      description: Unexpected server failure; no internal details are exposed.
+      headers: {X-Request-Id: {$ref: '#/components/headers/XRequestId'}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/ErrorEnvelope'}, example: {error: {code: INTERNAL, message: Internal server error, details: {}, request_id: '00000000-0000-4000-8000-000000000001'}}}}
+  schemas:
+    Stage:
+      type: string
+      enum: [INITIATED, KYC, DOCUMENTS, LOAN_REQUESTED, PAYMENT, REGISTRATION, COMPLETED, CANCELLED]
+    Role:
+      type: string
+      enum: [BUYER, SELLER, BROKER, ADMIN]
+    PropertyType:
+      type: string
+      enum: [APARTMENT, HOUSE, PLOT, COMMERCIAL, OTHER]
+    DocumentType:
+      type: string
+      enum: [PAN, AADHAAR, PROPERTY_TAX_RECEIPT, AGREEMENT, REGISTERED_SALE_DEED]
+    VerificationStatus:
+      type: string
+      enum: [PENDING, VERIFIED, REJECTED]
+    CancellationReason:
+      type: string
+      enum: [BUYER_WITHDREW, SELLER_WITHDREW, DOCUMENT_ISSUE, FINANCING_UNAVAILABLE, REGISTRATION_ISSUE, DUPLICATE_DEAL, OTHER]
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status, version, uptime_seconds]
+      properties:
+        status: {type: string, const: ok}
+        version: {type: string, description: Deployed application version.}
+        uptime_seconds: {type: number, minimum: 0}
+    Readiness:
+      type: object
+      additionalProperties: false
+      required: [status, checks]
+      properties:
+        status: {type: string, const: ready}
+        checks:
+          type: object
+          additionalProperties: false
+          required: [database, storage]
+          properties:
+            database: {type: string, const: reachable}
+            storage: {type: string, const: not_configured}
+    ReadinessFailure:
+      type: object
+      additionalProperties: false
+      required: [status, checks]
+      properties:
+        status: {type: string, const: not_ready}
+        checks:
+          type: object
+          additionalProperties: false
+          required: [database, storage]
+          properties:
+            database: {type: string, const: unavailable}
+            storage: {type: string, const: not_configured}
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, details, request_id]
+          properties:
+            code: {type: string, enum: [VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, STAGE_CONFLICT, ILLEGAL_TRANSITION, DUPLICATE_PROPERTY, PRECONDITION_FAILED, PAYLOAD_TOO_LARGE, UNSUPPORTED_MEDIA_TYPE, RATE_LIMITED, INTERNAL]}
+            message: {type: string}
+            details: {type: object, additionalProperties: true}
+            request_id: {type: string, format: uuid}
+    User:
+      type: object
+      required: [id, email, display_name, role, broker_id, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        email: {type: string, format: email}
+        display_name: {type: string}
+        role: {$ref: '#/components/schemas/Role'}
+        broker_id: {type: [string, 'null']}
+        created_at: {type: string, format: date-time}
+    UserLookup:
+      type: object
+      additionalProperties: false
+      required: [id, display_name, role]
+      properties:
+        id: {type: string, format: uuid}
+        display_name: {type: string}
+        role: {$ref: '#/components/schemas/Role'}
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [display_name, role, consent_version]
+      properties:
+        display_name: {type: string, minLength: 1, maxLength: 120}
+        role: {type: string, enum: [BUYER, SELLER]}
+        consent_version: {type: string, minLength: 1, maxLength: 40}
+    CreatePropertyRequest:
+      type: object
+      additionalProperties: false
+      required: [address, pincode, property_type]
+      properties:
+        address: {type: string, minLength: 1, maxLength: 1000}
+        pincode: {type: string, pattern: '^[0-9]{6}$'}
+        unit: {type: [string, 'null'], maxLength: 120}
+        property_type: {$ref: '#/components/schemas/PropertyType'}
+    CorrectPropertyRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        address: {type: string, minLength: 1, maxLength: 1000}
+        pincode: {type: string, pattern: '^[0-9]{6}$'}
+        unit: {type: [string, 'null'], maxLength: 120}
+        property_type: {$ref: '#/components/schemas/PropertyType'}
+        current_owner_user_id: {type: [string, 'null'], format: uuid}
+    Property:
+      type: object
+      required: [id, address, pincode, unit, property_type, owner_display_name, has_active_transaction, workflow_status, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        address: {type: string}
+        pincode: {type: string}
+        unit: {type: [string, 'null']}
+        property_type: {$ref: '#/components/schemas/PropertyType'}
+        owner_display_name: {type: [string, 'null']}
+        has_active_transaction: {type: boolean}
+        workflow_status: {oneOf: [{$ref: '#/components/schemas/Stage'}, {type: string, const: NONE}]}
+        created_at: {type: string, format: date-time}
+    Passport:
+      allOf:
+        - {$ref: '#/components/schemas/Property'}
+        - type: object
+          required: [transaction_history, documents]
+          properties:
+            transaction_history: {type: array, items: {$ref: '#/components/schemas/PassportEvent'}}
+            documents: {type: array, items: {$ref: '#/components/schemas/Document'}}
+    PassportEvent:
+      type: object
+      required: [type, created_at]
+      properties:
+        type: {type: string, description: Non-party views contain only STAGE_CHANGED milestones.}
+        stage: {$ref: '#/components/schemas/Stage'}
+        created_at: {type: string, format: date-time}
+        actor_display_name: {type: [string, 'null']}
+    PropertyPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Property'}}
+        next_cursor: {type: [string, 'null']}
+    CreateTransactionRequest:
+      type: object
+      additionalProperties: false
+      required: [property_id, seller_user_id, loan_requested]
+      properties:
+        property_id: {type: string, format: uuid}
+        seller_user_id: {type: string, format: uuid}
+        loan_requested: {type: boolean}
+    PendingAction:
+      type: object
+      required: [awaiting_role, action_code]
+      properties:
+        awaiting_role: {type: string, enum: [BUYER, SELLER, BROKER, ADMIN]}
+        action_code: {type: string, enum: [CONFIRM_PARTICIPATION, UPLOAD_KYC, UPLOAD_DOCUMENTS, RECORD_LOAN, RECORD_PAYMENT, UPLOAD_REGISTRATION_DEED, VERIFY_REGISTRATION_DEED, COMPLETE_REGISTRATION, CANCEL_TRANSACTION]}
+    Transaction:
+      type: object
+      required: [id, property_id, buyer_user_id, seller_user_id, broker_user_id, buyer_confirmed_at, seller_confirmed_at, broker_confirmed_at, loan_requested, stage, payment_is_simulated, payment_reference, registration_reference, cancellation_reason, cancellation_note, version, pending_action, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        property_id: {type: string, format: uuid}
+        buyer_user_id: {type: string, format: uuid}
+        seller_user_id: {type: string, format: uuid}
+        broker_user_id: {type: [string, 'null'], format: uuid}
+        buyer_confirmed_at: {type: string, format: date-time}
+        seller_confirmed_at: {type: [string, 'null'], format: date-time}
+        broker_confirmed_at: {type: [string, 'null'], format: date-time}
+        loan_requested: {type: boolean}
+        stage: {$ref: '#/components/schemas/Stage'}
+        lender_name: {type: [string, 'null']}
+        loan_reference: {type: [string, 'null']}
+        payment_is_simulated: {type: boolean, const: true}
+        payment_reference: {type: [string, 'null'], pattern: '^SIM-[A-Z0-9]{8}$'}
+        registration_reference: {type: [string, 'null']}
+        cancellation_reason: {oneOf: [{$ref: '#/components/schemas/CancellationReason'}, {type: 'null'}]}
+        cancellation_note: {type: [string, 'null'], maxLength: 500}
+        version: {type: integer, minimum: 1}
+        pending_action:
+          oneOf:
+            - {type: 'null'}
+            - {$ref: '#/components/schemas/PendingAction'}
+            - {type: array, items: {$ref: '#/components/schemas/PendingAction'}}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    TransactionPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Transaction'}}
+        next_cursor: {type: [string, 'null']}
+    StageTransitionRequest:
+      type: object
+      additionalProperties: false
+      required: [to_stage, expected_from_stage, data]
+      properties:
+        to_stage: {$ref: '#/components/schemas/Stage'}
+        expected_from_stage: {$ref: '#/components/schemas/Stage'}
+        data:
+          type: object
+          properties:
+            cancellation_reason: {$ref: '#/components/schemas/CancellationReason'}
+            cancellation_note: {type: string, maxLength: 500}
+            lender_name: {type: string, minLength: 1, maxLength: 200}
+            loan_reference: {type: string, minLength: 1, maxLength: 200}
+            payment_reference: {type: string, pattern: '^SIM-[A-Z0-9]{8}$'}
+            registration_reference: {type: string, minLength: 1, maxLength: 200}
+    AttachBrokerRequest:
+      type: object
+      additionalProperties: false
+      required: [broker_id]
+      properties:
+        broker_id: {type: string, pattern: '^BRK-[A-Z0-9]{6}$'}
+    Document:
+      type: object
+      required: [id, transaction_id, property_id, uploaded_by_user_id, type, verification_status, verification_reason, verified_by_user_id, verified_at, supersedes_document_id, original_filename, media_type, size_bytes, sha256_checksum, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        transaction_id: {type: string, format: uuid}
+        property_id: {type: string, format: uuid}
+        uploaded_by_user_id: {type: string, format: uuid}
+        type: {$ref: '#/components/schemas/DocumentType'}
+        verification_status: {$ref: '#/components/schemas/VerificationStatus'}
+        verification_reason: {type: [string, 'null']}
+        verified_by_user_id: {type: [string, 'null'], format: uuid}
+        verified_at: {type: [string, 'null'], format: date-time}
+        supersedes_document_id: {type: [string, 'null'], format: uuid}
+        original_filename: {type: string}
+        media_type: {type: string, enum: [application/pdf, image/jpeg, image/png]}
+        size_bytes: {type: integer, minimum: 1, maximum: 10485760}
+        sha256_checksum: {type: string, pattern: '^[a-f0-9]{64}$'}
+        created_at: {type: string, format: date-time}
+    DocumentPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Document'}}
+        next_cursor: {type: [string, 'null']}
+    VerificationRequest:
+      type: object
+      additionalProperties: false
+      required: [verification_status]
+      properties:
+        verification_status: {type: string, enum: [VERIFIED, REJECTED]}
+        verification_reason: {type: string, minLength: 1, maxLength: 500, description: Required when verification_status is REJECTED.}
+    DownloadUrl:
+      type: object
+      required: [url, expires_at]
+      properties:
+        url: {type: string, format: uri}
+        expires_at: {type: string, format: date-time}
+    Notification:
+      type: object
+      required: [id, event_id, read_at, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        event_id: {type: string, format: uuid}
+        read_at: {type: [string, 'null'], format: date-time}
+        created_at: {type: string, format: date-time}
+    NotificationPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Notification'}}
+        next_cursor: {type: [string, 'null']}
+    ProvisionBrokerRequest:
+      type: object
+      additionalProperties: false
+      required: [email, display_name]
+      properties:
+        email: {type: string, format: email, maxLength: 254}
+        display_name: {type: string, minLength: 1, maxLength: 120}
+    BrokerProvision:
+      type: object
+      required: [id, email, display_name, broker_id, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        email: {type: string, format: email}
+        display_name: {type: string}
+        broker_id: {type: string, pattern: '^BRK-[A-Z0-9]{6}$'}
+        created_at: {type: string, format: date-time}
+    CorrectAssignmentsRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        buyer_user_id: {type: string, format: uuid}
+        seller_user_id: {type: string, format: uuid}
+        broker_user_id: {type: [string, 'null'], format: uuid}

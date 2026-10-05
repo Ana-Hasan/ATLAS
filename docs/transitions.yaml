@@ -1,0 +1,201 @@
+version: 1.0.0
+source: docs/SPEC.md
+stages:
+  - INITIATED
+  - KYC
+  - DOCUMENTS
+  - LOAN_REQUESTED
+  - PAYMENT
+  - REGISTRATION
+  - COMPLETED
+  - CANCELLED
+terminal_stages: [COMPLETED, CANCELLED]
+transitions:
+  - id: T-01
+    from: INITIATED
+    to: KYC
+    trigger: AUTOMATIC
+    allowed_roles: [SYSTEM]
+    preconditions:
+      - seller_confirmed_at is not null
+      - broker_confirmed_at is not null when broker_user_id is not null
+    side_effects:
+      - Set stage to KYC.
+      - Increment transactions.version and update transactions.updated_at.
+      - Write STAGE_CHANGED with transaction_id and stage enum values only.
+    notifies: [BUYER, ADMIN]
+  - id: T-02
+    from: KYC
+    to: DOCUMENTS
+    trigger: AUTOMATIC
+    allowed_roles: [SYSTEM]
+    preconditions:
+      - Latest non-rejected PAN uploaded by BUYER has verification_status VERIFIED.
+    side_effects:
+      - Set stage to DOCUMENTS.
+      - Increment transactions.version and update transactions.updated_at.
+      - Write STAGE_CHANGED with transaction_id and stage enum values only.
+    notifies: [BUYER, SELLER]
+  - id: T-03
+    from: DOCUMENTS
+    to: LOAN_REQUESTED
+    trigger: AUTOMATIC
+    allowed_roles: [SYSTEM]
+    preconditions:
+      - loan_requested is true.
+      - Latest non-rejected PROPERTY_TAX_RECEIPT uploaded by SELLER has verification_status VERIFIED.
+      - Latest non-rejected AGREEMENT uploaded by BUYER or SELLER has verification_status VERIFIED.
+    side_effects:
+      - Set stage to LOAN_REQUESTED.
+      - Increment transactions.version and update transactions.updated_at.
+      - Write STAGE_CHANGED with transaction_id and stage enum values only.
+    notifies: [BUYER]
+  - id: T-04
+    from: DOCUMENTS
+    to: PAYMENT
+    trigger: AUTOMATIC
+    allowed_roles: [SYSTEM]
+    preconditions:
+      - loan_requested is false.
+      - Latest non-rejected PROPERTY_TAX_RECEIPT uploaded by SELLER has verification_status VERIFIED.
+      - Latest non-rejected AGREEMENT uploaded by BUYER or SELLER has verification_status VERIFIED.
+    side_effects:
+      - Set stage to PAYMENT.
+      - Increment transactions.version and update transactions.updated_at.
+      - Write STAGE_CHANGED with transaction_id and stage enum values only.
+    notifies: [BUYER]
+  - id: T-05
+    from: LOAN_REQUESTED
+    to: PAYMENT
+    trigger: EXPLICIT
+    allowed_roles: [BUYER]
+    preconditions:
+      - lender_name is present and 1 to 200 characters.
+      - loan_reference is present and 1 to 200 characters.
+    side_effects:
+      - Store lender_name and loan_reference.
+      - Set stage to PAYMENT.
+      - Increment transactions.version and update transactions.updated_at.
+      - Write STAGE_CHANGED with transaction_id and stage enum values only.
+    notifies: [SELLER, ADMIN]
+  - id: T-06
+    from: PAYMENT
+    to: REGISTRATION
+    trigger: EXPLICIT
+    allowed_roles: [BUYER]
+    preconditions:
+      - payment reference matches ^SIM-[A-Z0-9]{8}$.
+      - payment_is_simulated is true.
+    side_effects:
+      - Store payment_reference.
+      - Set stage to REGISTRATION.
+      - Increment transactions.version and update transactions.updated_at.
+      - Write STAGE_CHANGED with transaction_id and stage enum values only.
+    notifies: [SELLER, ADMIN]
+  - id: T-07
+    from: REGISTRATION
+    to: COMPLETED
+    trigger: EXPLICIT
+    allowed_roles: [ADMIN]
+    preconditions:
+      - registration_reference is present and 1 to 200 characters.
+      - Latest non-rejected REGISTERED_SALE_DEED uploaded by BUYER or SELLER has verification_status VERIFIED.
+    side_effects:
+      - Set stage to COMPLETED.
+      - Set properties.current_owner_user_id to transactions.buyer_user_id.
+      - Increment transactions.version and update transactions.updated_at.
+      - Write STAGE_CHANGED with transaction_id and stage enum values only.
+      - Write OWNERSHIP_UPDATED with property_id, transaction_id, previous owner user ID if any, and buyer user ID.
+    notifies: [BUYER, SELLER, ATTACHED_BROKER]
+  - id: T-08
+    from: INITIATED
+    to: CANCELLED
+    trigger: EXPLICIT
+    allowed_roles: [BUYER, SELLER, ADMIN]
+    preconditions:
+      - cancellation_reason is a valid cancellation reason enum.
+      - cancellation_note is null or at most 500 characters.
+    side_effects:
+      - Store cancellation_reason and cancellation_note on transactions only.
+      - Set stage to CANCELLED and release the property active transaction slot.
+      - Increment transactions.version and update transactions.updated_at.
+      - Write TRANSACTION_CANCELLED with transaction_id and reason enum only.
+    notifies: [BUYER, SELLER, ATTACHED_BROKER, ADMIN_EXCEPT_ACTOR]
+  - id: T-09
+    from: KYC
+    to: CANCELLED
+    trigger: EXPLICIT
+    allowed_roles: [BUYER, SELLER, ADMIN]
+    preconditions:
+      - cancellation_reason is a valid cancellation reason enum.
+      - cancellation_note is null or at most 500 characters.
+    side_effects:
+      - Store cancellation_reason and cancellation_note on transactions only.
+      - Set stage to CANCELLED and release the property active transaction slot.
+      - Increment transactions.version and update transactions.updated_at.
+      - Write TRANSACTION_CANCELLED with transaction_id and reason enum only.
+    notifies: [BUYER, SELLER, ATTACHED_BROKER, ADMIN_EXCEPT_ACTOR]
+  - id: T-10
+    from: DOCUMENTS
+    to: CANCELLED
+    trigger: EXPLICIT
+    allowed_roles: [BUYER, SELLER, ADMIN]
+    preconditions:
+      - cancellation_reason is a valid cancellation reason enum.
+      - cancellation_note is null or at most 500 characters.
+    side_effects:
+      - Store cancellation_reason and cancellation_note on transactions only.
+      - Set stage to CANCELLED and release the property active transaction slot.
+      - Increment transactions.version and update transactions.updated_at.
+      - Write TRANSACTION_CANCELLED with transaction_id and reason enum only.
+    notifies: [BUYER, SELLER, ATTACHED_BROKER, ADMIN_EXCEPT_ACTOR]
+  - id: T-11
+    from: LOAN_REQUESTED
+    to: CANCELLED
+    trigger: EXPLICIT
+    allowed_roles: [BUYER, SELLER, ADMIN]
+    preconditions:
+      - cancellation_reason is a valid cancellation reason enum.
+      - cancellation_note is null or at most 500 characters.
+    side_effects:
+      - Store cancellation_reason and cancellation_note on transactions only.
+      - Set stage to CANCELLED and release the property active transaction slot.
+      - Increment transactions.version and update transactions.updated_at.
+      - Write TRANSACTION_CANCELLED with transaction_id and reason enum only.
+    notifies: [BUYER, SELLER, ATTACHED_BROKER, ADMIN_EXCEPT_ACTOR]
+  - id: T-12
+    from: PAYMENT
+    to: CANCELLED
+    trigger: EXPLICIT
+    allowed_roles: [ADMIN]
+    preconditions:
+      - cancellation_reason is a valid cancellation reason enum.
+      - cancellation_note is null or at most 500 characters.
+    side_effects:
+      - Store cancellation_reason and cancellation_note on transactions only.
+      - Set stage to CANCELLED and release the property active transaction slot.
+      - Increment transactions.version and update transactions.updated_at.
+      - Write TRANSACTION_CANCELLED with transaction_id and reason enum only.
+    notifies: [BUYER, SELLER, ATTACHED_BROKER, ADMIN_EXCEPT_ACTOR]
+  - id: T-13
+    from: REGISTRATION
+    to: CANCELLED
+    trigger: EXPLICIT
+    allowed_roles: [ADMIN]
+    preconditions:
+      - cancellation_reason is a valid cancellation reason enum.
+      - cancellation_note is null or at most 500 characters.
+    side_effects:
+      - Store cancellation_reason and cancellation_note on transactions only.
+      - Set stage to CANCELLED and release the property active transaction slot.
+      - Increment transactions.version and update transactions.updated_at.
+      - Write TRANSACTION_CANCELLED with transaction_id and reason enum only.
+    notifies: [BUYER, SELLER, ATTACHED_BROKER, ADMIN_EXCEPT_ACTOR]
+illegal_transition:
+  http_status: 409
+  error_code: ILLEGAL_TRANSITION
+  rule: Any from/to pair absent from transitions is rejected. AUTOMATIC transitions cannot be requested by a client.
+stage_conflict:
+  http_status: 409
+  error_code: STAGE_CONFLICT
+  rule: Reject when expected_from_stage differs from the current transaction stage; make no state change.
