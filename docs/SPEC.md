@@ -379,7 +379,9 @@ All endpoints require Clerk authentication except `/health` and `/ready`. `POST 
 - NFR-13. Environment variables are supplied through deployment secrets and are named in `.env.example`; the file contains names and safe descriptions, never secret values.
 - NFR-14. API operations use cursor pagination with page size at most 100.
 
-Environment variable contract (names only): `NODE_ENV`, `PORT`, `DATABASE_URL`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `CLERK_ISSUER_URL`, `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_REGION`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_ACCESS_KEY_ID`, `OBJECT_STORAGE_SECRET_ACCESS_KEY`, `CORS_ALLOWED_ORIGINS`, `RATE_LIMIT_REDIS_URL`, `LOG_LEVEL`, `APP_BASE_URL`.
+Environment variable contract (names only): `NODE_ENV`, `PORT`, `DATABASE_URL`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `CLERK_ISSUER_URL`, `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_REGION`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_ACCESS_KEY_ID`, `OBJECT_STORAGE_SECRET_ACCESS_KEY`, `CORS_ALLOWED_ORIGINS`, `RATE_LIMIT_REDIS_URL`, `LOG_LEVEL`, `APP_BASE_URL`, `NEXT_PUBLIC_API_BASE_URL`.
+
+`NEXT_PUBLIC_API_BASE_URL` is the public base URL of the Atlas API consumed by the frontend. The frontend app example file includes this variable; it is not a server secret.
 
 ## Privacy and compliance
 

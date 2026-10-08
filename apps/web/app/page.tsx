@@ -154,7 +154,7 @@ export default function StatusPage() {
       <div className="main-column" id="overview">
         <header className="topbar">
           <div className="breadcrumb"><span>Atlas</span><span className="crumb-slash">/</span><strong>Status</strong></div>
-          <div className="topbar-meta"><span className="environment-dot" />Production monitor</div>
+          <div className="topbar-meta"><span className="environment-dot" />Service monitor</div>
         </header>
 
         <div className="page-content">

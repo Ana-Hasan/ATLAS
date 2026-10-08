@@ -1,7 +1,14 @@
 node_modules/
-.env.local
-.env
 .next/
 dist/
 build/
 coverage/
+.turbo/
+*.tsbuildinfo
+.DS_Store
+
+# Ignore all environment files except safe example templates.
+.env*
+!.env.example
+**/.env*
+!**/.env.example

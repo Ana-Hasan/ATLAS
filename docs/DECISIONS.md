@@ -51,6 +51,7 @@ This register records the defaults, Phase A answers, explicit overrides, and add
 | D-43 | Node runtime | Pin Node.js major 24 in `.nvmrc` and package `engines`; use current 24.x patch from the Node.js download page at implementation time. | Node 24 is LTS as of the spec date and remains supported through April 2028. | Node 20 (EOL) or Current-only major 26. |
 | D-44 | Operational probes | `GET /health` returns `{status:"ok",version,uptime_seconds}`. `GET /ready` returns status and database/storage checks; database failure is 503; storage is `not_configured` in MVP. | Explicitly defines health schemas absent from original SPEC. | Dependency checks in liveness or hidden storage state. |
 | D-45 | Spec versioning | Start at 1.0.0; semantic versioning. Breaking means incompatible field/path/enum/permission/transition/error behavior or removal/meaning change. | Enables chunk-by-chunk traceability. | Unversioned spec changes. |
+| D-46 | Frontend API origin | `NEXT_PUBLIC_API_BASE_URL` is the environment-supplied public base URL used by the status page and future frontend API client. | Prevents hard-coded API hosts and lets Vercel target the deployed API. | Reusing `APP_BASE_URL`, which names the frontend application's own URL. |
 
 ## Phase A response record
 

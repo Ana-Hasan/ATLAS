@@ -2,6 +2,11 @@
 
 This changelog tracks contract versions, not implementation releases.
 
+## 1.0.1 — 2026-10-08
+
+- Added `NEXT_PUBLIC_API_BASE_URL` to the environment variable contract for the frontend's API origin.
+- Clarified that this public URL is frontend configuration, not a server secret.
+
 ## 1.0.0 — 2026-10-05
 
 - Initial specification for property passports, transaction state machine, document vault, permissions, notifications, and API.
